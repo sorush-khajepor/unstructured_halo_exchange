@@ -48,7 +48,8 @@ int main()
 
   std::vector<Box> boxes{b0, b1, b2};
 
-  HaloManager haloManager{boxes, overlap};
+  std::array<bool,2> isPeriodic{true,true};
+  HaloManager haloManager{boxes,isPeriodic, overlap};
   Block2d<double> block{haloManager.box, overlap};
   fillBlock(block, rank);
 

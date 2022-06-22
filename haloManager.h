@@ -2,18 +2,21 @@
 #include "block2d.h"
 #include <vector>
 
-enum Dir
+namespace Dir
 {
-    center,
-    right,
-    top,
-    left,
-    bottom,
-    topright,
-    topleft,
-    bottomleft,
-    bottomright
-};
+    enum Type
+    {
+        center,
+        right,
+        top,
+        left,
+        bottom,
+        topright,
+        topleft,
+        bottomleft,
+        bottomright
+    };
+}
 std::array<std::array<int, 2>, 9> Dir2Array{{{0, 0}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}}};
 int IsXPeriodicDir[9]{0, 1, 0, 1, 0, 0, 0, 0, 0};
 int IsYPeriodicDir[9]{0, 0, 1, 0, 1, 0, 0, 0, 0};
@@ -29,7 +32,7 @@ struct Neighbor
 {
     size_t rank;
     Box box;
-    Dir dir;
+    Dir::Type dir;
     MPI_Datatype inType, outType;
     int inTag, outTag;
 };
@@ -50,21 +53,12 @@ public:
 
     int rank, size;
 
-    HaloManager(const std::vector<Box> &domainBoxes_, size_t overlap_) : overlap{overlap_}
+    HaloManager(const std::vector<Box> &domainBoxes_, std::array<bool, 2> isPeriodic, size_t overlap_) : overlap{overlap_}
     {
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &size);
-        bool periodic[2]{true, true};
-        if (periodic[0] && !periodic[1])
-            for (size_t i = 0; i < 9; i++)
-                isPeriodicDir[i] = IsXPeriodicDir[i];
-        else if (!periodic[0] && periodic[1])
-            for (size_t i = 0; i < 9; i++)
-                isPeriodicDir[i] = IsYPeriodicDir[i];
-        else if (periodic[0] && periodic[1])
-            for (size_t i = 0; i < 9; i++)
-                isPeriodicDir[i] = IsXyPeriodicDir[i];
 
+        SetIsPeriodicDir(isPeriodic);
         std::vector<BoxRank> boxRank;
         for (size_t i = 0; i < domainBoxes_.size(); i++)
         {
@@ -76,8 +70,19 @@ public:
         ghostBox = ToGhostBox(box);
         localGhostBox = RelativeToGhostBox(ghostBox);
         SetDomainBox(boxRank);
-        // AddPeriodicBoxes(boxRank, periodic);
         SetNeighbours(boxRank);
+    }
+    void SetIsPeriodicDir(std::array<bool, 2> periodic)
+    {
+        if (periodic[0] && !periodic[1])
+            for (size_t i = 0; i < 9; i++)
+                isPeriodicDir[i] = IsXPeriodicDir[i];
+        else if (!periodic[0] && periodic[1])
+            for (size_t i = 0; i < 9; i++)
+                isPeriodicDir[i] = IsYPeriodicDir[i];
+        else if (periodic[0] && periodic[1])
+            for (size_t i = 0; i < 9; i++)
+                isPeriodicDir[i] = IsXyPeriodicDir[i];
     }
     void SetDomainBox(std::vector<BoxRank> &boxRanks)
     {
@@ -85,53 +90,8 @@ public:
         for (size_t i = 1; i < boxRanks.size(); i++)
             domainBox.Merge(boxRanks[i].box);
     }
-    void AppendBoxRanks(std::vector<BoxRank> &boxRanks, const std::vector<BoxRank> &other)
-    {
-        boxRanks.insert(boxRanks.end(), other.begin(), other.end());
-    }
-    auto Translate(std::vector<BoxRank> boxRanks, int dx, int dy)
-    {
-        for (auto &&item : boxRanks)
-        {
-            item.box.Translate(dx, dy);
-        }
-        return boxRanks;
-    }
-    void AddPeriodicBoxes(std::vector<BoxRank> &boxRanks, bool periodic[2])
-    {
-        auto [dx, dy] = domainBox.GetExtent();
-        auto right = Translate(boxRanks, dx, 0);
-        auto left = Translate(boxRanks, -dx, 0);
 
-        auto top = Translate(boxRanks, 0, dy);
-        auto bottom = Translate(boxRanks, 0, -dy);
-
-        auto topright = Translate(boxRanks, dx, dy);
-        auto topleft = Translate(boxRanks, -dx, dy);
-        auto bottomleft = Translate(boxRanks, -dx, -dy);
-        auto bottomright = Translate(boxRanks, dx, -dy);
-
-        if (periodic[0])
-        {
-            AppendBoxRanks(boxRanks, right);
-            AppendBoxRanks(boxRanks, left);
-        }
-        if (periodic[1])
-        {
-            AppendBoxRanks(boxRanks, top);
-            AppendBoxRanks(boxRanks, bottom);
-        }
-
-        if (periodic[0] && periodic[1])
-        {
-            AppendBoxRanks(boxRanks, topright);
-            AppendBoxRanks(boxRanks, topleft);
-            AppendBoxRanks(boxRanks, bottomleft);
-            AppendBoxRanks(boxRanks, bottomright);
-        }
-    }
-
-    Box GetPeriodicBox(Box box, Dir dir, bool &isThere)
+    Box GetPeriodicBox(Box box, Dir::Type dir, bool &isThere)
     {
         if (!isPeriodicDir[dir])
         {
@@ -161,19 +121,18 @@ public:
         {
             auto &boxRank = boxRanks[i];
 
-            if (boxRank.rank != rank )
+            if (boxRank.rank != rank)
                 AddNeighbour(boxRank);
-            
+
             for (size_t j = 0; j < 9; j++)
             {
-                bool isThere=false;
-                auto pbox = GetPeriodicBox(boxRank.box, (Dir)j, isThere);
-                if (isThere){
-                    AddNeighbour(BoxRank{pbox,boxRank.rank});
+                bool isThere = false;
+                auto pbox = GetPeriodicBox(boxRank.box, (Dir::Type)j, isThere);
+                if (isThere)
+                {
+                    AddNeighbour(BoxRank{pbox, boxRank.rank});
                 }
             }
-            
-            
         }
     }
 
