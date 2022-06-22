@@ -14,6 +14,10 @@ enum Dir
     bottomleft,
     bottomright
 };
+std::array<std::array<int, 2>, 9> Dir2Array{{{0, 0}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}}};
+int IsXPeriodicDir[9]{0, 1, 0, 1, 0, 0, 0, 0, 0};
+int IsYPeriodicDir[9]{0, 0, 1, 0, 1, 0, 0, 0, 0};
+int IsXyPeriodicDir[9]{0, 1, 1, 1, 1, 1, 1, 1, 1};
 
 struct BoxRank
 {
@@ -42,6 +46,7 @@ public:
     Box ghostBox;
     Box localGhostBox;
     Box domainBox;
+    int isPeriodicDir[9];
 
     int rank, size;
 
@@ -50,6 +55,16 @@ public:
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &size);
         bool periodic[2]{true, true};
+        if (periodic[0] && !periodic[1])
+            for (size_t i = 0; i < 9; i++)
+                isPeriodicDir[i] = IsXPeriodicDir[i];
+        else if (!periodic[0] && periodic[1])
+            for (size_t i = 0; i < 9; i++)
+                isPeriodicDir[i] = IsYPeriodicDir[i];
+        else if (periodic[0] && periodic[1])
+            for (size_t i = 0; i < 9; i++)
+                isPeriodicDir[i] = IsXyPeriodicDir[i];
+
         std::vector<BoxRank> boxRank;
         for (size_t i = 0; i < domainBoxes_.size(); i++)
         {
@@ -61,10 +76,11 @@ public:
         ghostBox = ToGhostBox(box);
         localGhostBox = RelativeToGhostBox(ghostBox);
         SetDomainBox(boxRank);
-        AddPeriodicBoxes(boxRank, periodic);
+        // AddPeriodicBoxes(boxRank, periodic);
         SetNeighbours(boxRank);
     }
-    void SetDomainBox(std::vector<BoxRank> &boxRanks) {
+    void SetDomainBox(std::vector<BoxRank> &boxRanks)
+    {
         domainBox = boxRanks[0].box;
         for (size_t i = 1; i < boxRanks.size(); i++)
             domainBox.Merge(boxRanks[i].box);
@@ -81,7 +97,7 @@ public:
         }
         return boxRanks;
     }
-    void AddPeriodicBoxes(std::vector<BoxRank>& boxRanks, bool periodic[2])
+    void AddPeriodicBoxes(std::vector<BoxRank> &boxRanks, bool periodic[2])
     {
         auto [dx, dy] = domainBox.GetExtent();
         auto right = Translate(boxRanks, dx, 0);
@@ -114,39 +130,71 @@ public:
             AppendBoxRanks(boxRanks, bottomright);
         }
     }
-    Box PeriodicBoxToInDomainBox(const Box& box){
-            auto [dx,dy] = domainBox.GetExtent();
-            return Box{(box.ix0+dx)%dx, (box.ix1+dx)%dx , (box.iy0+dy)%dy, (box.iy1+dy)%dy};
+
+    Box GetPeriodicBox(Box box, Dir dir, bool &isThere)
+    {
+        if (!isPeriodicDir[dir])
+        {
+            isThere = false;
+            return box;
+        }
+
+        isThere = true;
+        auto dirVec = Dir2Array[dir];
+        auto [dx, dy] = domainBox.GetExtent();
+        return box.Translate(dirVec[0] * dx, dirVec[1] * dy);
     }
-    int HashBox(const Box& box){
-             return box.ix0 + box.ix1 + box.iy0 + box.iy1;
+
+    Box PeriodicBoxToInDomainBox(const Box &box)
+    {
+        auto [dx, dy] = domainBox.GetExtent();
+        return Box{(box.ix0 + dx) % dx, (box.ix1 + dx) % dx, (box.iy0 + dy) % dy, (box.iy1 + dy) % dy};
     }
-    
+    int HashBox(const Box &box)
+    {
+        return box.ix0 + box.ix1 + box.iy0 + box.iy1;
+    }
+
     void SetNeighbours(const std::vector<BoxRank> &boxRanks)
     {
         for (size_t i = 0; i < boxRanks.size(); i++)
         {
-            auto& boxRank=boxRanks[i];
+            auto &boxRank = boxRanks[i];
 
-            if (boxRank.rank == rank && i<size)
-                continue;
-            auto inbox = ghostBox.clone().Intersect(boxRank.box);
-            auto outbox = box.clone().Intersect(ToGhostBox(boxRank.box));
-            auto intag = HashBox(PeriodicBoxToInDomainBox(inbox));
-            auto outtag = HashBox(PeriodicBoxToInDomainBox(outbox));
-
-            if (inbox.IsValid() && outbox.IsValid())
+            if (boxRank.rank != rank )
+                AddNeighbour(boxRank);
+            
+            for (size_t j = 0; j < 9; j++)
             {
-                auto localInbox = RelativeToGhostBox(inbox);
-                auto localOutbox = RelativeToGhostBox(outbox);
-                neighbors.push_back(Neighbor{
-                    .rank = boxRank.rank,
-                    .box = PeriodicBoxToInDomainBox(boxRank.box),
-                    .inType = MakeMpiType(localGhostBox, localInbox),
-                    .outType = MakeMpiType(localGhostBox, localOutbox),
-                    .inTag = intag,
-                    .outTag = outtag});
+                bool isThere=false;
+                auto pbox = GetPeriodicBox(boxRank.box, (Dir)j, isThere);
+                if (isThere){
+                    AddNeighbour(BoxRank{pbox,boxRank.rank});
+                }
             }
+            
+            
+        }
+    }
+
+    void AddNeighbour(const BoxRank &boxRank)
+    {
+        auto inbox = ghostBox.clone().Intersect(boxRank.box);
+        auto outbox = box.clone().Intersect(ToGhostBox(boxRank.box));
+        auto intag = HashBox(PeriodicBoxToInDomainBox(inbox));
+        auto outtag = HashBox(PeriodicBoxToInDomainBox(outbox));
+
+        if (inbox.IsValid() && outbox.IsValid())
+        {
+            auto localInbox = RelativeToGhostBox(inbox);
+            auto localOutbox = RelativeToGhostBox(outbox);
+            neighbors.push_back(Neighbor{
+                .rank = boxRank.rank,
+                .box = PeriodicBoxToInDomainBox(boxRank.box),
+                .inType = MakeMpiType(localGhostBox, localInbox),
+                .outType = MakeMpiType(localGhostBox, localOutbox),
+                .inTag = intag,
+                .outTag = outtag});
         }
     }
 
