@@ -16,12 +16,19 @@ struct Box
     {
         return std::array<int, 2>{ix1 - ix0 + 1, iy1 - iy0 + 1};
     }
-    
-    Box clone() const{
+
+    Box clone() const
+    {
         return Box{*this};
     }
 
-    Box& Translate(int dx, int dy)
+    bool IsEqual(const Box &box) const
+    {
+        return ix0 == box.ix0 && ix1 == box.ix1 &&
+               iy0 == box.iy0 && iy1 == box.iy1;
+    }
+
+    Box &Translate(int dx, int dy)
     {
         ix0 += dx;
         ix1 += dx;
@@ -29,20 +36,20 @@ struct Box
         iy1 += dy;
         return *this;
     }
-    Box& Expand(int thickness, Axis axis)
+    Box &Expand(int thickness, Axis axis)
     {
         ix0 -= thickness * (1 - axis);
         ix1 += thickness * (1 - axis);
-        iy0 -= thickness * axis; 
+        iy0 -= thickness * axis;
         iy1 += thickness * axis;
         return *this;
     }
-    Box& Expand(int thickness)
+    Box &Expand(int thickness)
     {
         return Expand(thickness, Axis::x).Expand(thickness, Axis::y);
     }
 
-    Box& Merge(const Box &other)
+    Box &Merge(const Box &other)
     {
         ix0 = std::min(ix0, other.ix0);
         ix1 = std::max(ix1, other.ix1);
@@ -51,7 +58,7 @@ struct Box
         return *this;
     }
 
-    Box& Intersect(const Box &other)
+    Box &Intersect(const Box &other)
     {
         ix0 = std::max(ix0, other.ix0);
         ix1 = std::min(ix1, other.ix1);
@@ -63,12 +70,14 @@ struct Box
     {
         return ix0 <= ix1 && iy0 <= iy1;
     }
-    bool Contains(int ix, int iy) const{
+    bool Contains(int ix, int iy) const
+    {
         return ix0 <= ix && iy0 <= iy &&
-                ix <= ix1 && iy <= iy1;
+               ix <= ix1 && iy <= iy1;
     }
-    bool Contains(const Box& box) const{
-        return Contains(box.ix0,box.iy0) && Contains(box.ix1, box.iy1);
+    bool Contains(const Box &box) const
+    {
+        return Contains(box.ix0, box.iy0) && Contains(box.ix1, box.iy1);
     }
 
     void Print() const
