@@ -101,14 +101,15 @@ public:
 
         isThere = true;
         auto dirVec = Dir2Array[dir];
-        auto [dx, dy] = domainBox.GetExtent();
-        return box.Translate(dirVec[0] * dx, dirVec[1] * dy);
+        auto [lx, ly] = domainBox.GetExtent();
+        return box.Translate(dirVec[0] * lx, dirVec[1] * ly);
     }
 
     Box PeriodicBoxToInDomainBox(const Box &box)
     {
-        auto [dx, dy] = domainBox.GetExtent();
-        return Box{(box.ix0 + dx) % dx, (box.ix1 + dx) % dx, (box.iy0 + dy) % dy, (box.iy1 + dy) % dy};
+        auto [lx, ly] = domainBox.GetExtent();
+        return Box{(box.ix0 + lx) % lx, (box.ix1 + lx) % lx,
+                   (box.iy0 + ly) % ly, (box.iy1 + ly) % ly};
     }
     int HashBox(const Box &box)
     {
@@ -117,21 +118,17 @@ public:
 
     void SetNeighbours(const std::vector<BoxRank> &boxRanks)
     {
-        for (size_t i = 0; i < boxRanks.size(); i++)
+        for (auto &boxRank : boxRanks)
         {
-            auto &boxRank = boxRanks[i];
-
             if (boxRank.rank != rank)
                 AddNeighbour(boxRank);
 
-            for (size_t j = 0; j < 9; j++)
+            for (size_t dir = 0; dir < 9; dir++)
             {
                 bool isThere = false;
-                auto pbox = GetPeriodicBox(boxRank.box, (Dir::Type)j, isThere);
+                auto pbox = GetPeriodicBox(boxRank.box, (Dir::Type)dir, isThere);
                 if (isThere)
-                {
                     AddNeighbour(BoxRank{pbox, boxRank.rank});
-                }
             }
         }
     }
@@ -140,11 +137,11 @@ public:
     {
         auto inbox = ghostBox.clone().Intersect(boxRank.box);
         auto outbox = box.clone().Intersect(ToGhostBox(boxRank.box));
-        auto intag = HashBox(PeriodicBoxToInDomainBox(inbox));
-        auto outtag = HashBox(PeriodicBoxToInDomainBox(outbox));
 
         if (inbox.IsValid() && outbox.IsValid())
         {
+            auto intag = HashBox(PeriodicBoxToInDomainBox(inbox));
+            auto outtag = HashBox(PeriodicBoxToInDomainBox(outbox));
             auto localInbox = RelativeToGhostBox(inbox);
             auto localOutbox = RelativeToGhostBox(outbox);
             neighbors.push_back(Neighbor{
@@ -163,7 +160,7 @@ public:
         auto size = box.GetExtent();
         auto subSize = subBox.GetExtent();
         int subStart[2]{subBox.ix0, subBox.iy0};
-        MPI_Type_create_subarray(2, size.data(), subSize.data(), &subStart[0],
+        MPI_Type_create_subarray(2, size.data(), subSize.data(), subStart,
                                  MPI_ORDER_C, MPI_DOUBLE, &type);
         MPI_Type_commit(&type);
         return type;
