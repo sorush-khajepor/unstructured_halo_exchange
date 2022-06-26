@@ -43,34 +43,15 @@ class HaloManager
 private:
 public:
     size_t overlap;
-    std::vector<Neighbor> neighbors;
-    // this rank block boxes
-    Box box;
-    Box ghostBox;
-    Box localGhostBox;
     Box domainBox;
+    std::vector<BoxRank> boxRanks;
+
     int isPeriodicDir[9];
 
-    int rank, size;
-
-    HaloManager(const std::vector<Box> &domainBoxes_, std::array<bool, 2> isPeriodic, size_t overlap_) : overlap{overlap_}
+    HaloManager(const std::vector<BoxRank> &boxRanks_, std::array<bool, 2> isPeriodic, size_t overlap_) : boxRanks{boxRanks_}, overlap{overlap_}
     {
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-        MPI_Comm_size(MPI_COMM_WORLD, &size);
-
         SetIsPeriodicDir(isPeriodic);
-        std::vector<BoxRank> boxRank;
-        for (size_t i = 0; i < domainBoxes_.size(); i++)
-        {
-            boxRank.push_back(BoxRank{.box = domainBoxes_[i], .rank = i});
-        }
-
-        // this rank domain box
-        box = domainBoxes_[rank];
-        ghostBox = ToGhostBox(box);
-        localGhostBox = RelativeToGhostBox(ghostBox);
-        SetDomainBox(boxRank);
-        SetNeighbours(boxRank);
+        SetDomainBox(boxRanks);
     }
     void SetIsPeriodicDir(std::array<bool, 2> periodic)
     {
@@ -116,34 +97,38 @@ public:
         return box.ix0 + box.ix1 + box.iy0 + box.iy1;
     }
 
-    void SetNeighbours(const std::vector<BoxRank> &boxRanks)
+    auto FindNeighbours(const Box& fbox)
     {
+        std::vector<Neighbor> neighbors;
         for (auto &boxRank : boxRanks)
         {
-            if (boxRank.rank != rank)
-                AddNeighbour(boxRank);
+            if (!fbox.IsEqual(boxRank.box))
+                AddNeighbour(fbox, boxRank, neighbors);
 
             for (size_t dir = 0; dir < 9; dir++)
             {
                 bool isThere = false;
                 auto pbox = GetPeriodicBox(boxRank.box, (Dir::Type)dir, isThere);
                 if (isThere)
-                    AddNeighbour(BoxRank{pbox, boxRank.rank});
+                    AddNeighbour(fbox, BoxRank{pbox, boxRank.rank}, neighbors);
             }
         }
+        return neighbors;
     }
 
-    void AddNeighbour(const BoxRank &boxRank)
+    void AddNeighbour(const Box& fbox, const BoxRank &boxRank, std::vector<Neighbor>& neighbors )
     {
+        auto ghostBox = ToGhostBox(fbox);
+        auto localGhostBox = RelativeToGhostBox(fbox, ghostBox);
         auto inbox = ghostBox.clone().Intersect(boxRank.box);
-        auto outbox = box.clone().Intersect(ToGhostBox(boxRank.box));
+        auto outbox = fbox.clone().Intersect(ToGhostBox(boxRank.box));
 
         if (inbox.IsValid() && outbox.IsValid())
         {
             auto intag = HashBox(PeriodicBoxToInDomainBox(inbox));
             auto outtag = HashBox(PeriodicBoxToInDomainBox(outbox));
-            auto localInbox = RelativeToGhostBox(inbox);
-            auto localOutbox = RelativeToGhostBox(outbox);
+            auto localInbox = RelativeToGhostBox(fbox,inbox);
+            auto localOutbox = RelativeToGhostBox(fbox,outbox);
             neighbors.push_back(Neighbor{
                 .rank = boxRank.rank,
                 .box = PeriodicBoxToInDomainBox(boxRank.box),
@@ -171,8 +156,9 @@ public:
         return box.clone().Expand(overlap);
     }
 
-    Box RelativeToGhostBox(const Box &box)
+    Box RelativeToGhostBox(const Box& fbox,const Box &box)
     {
+        auto ghostBox = ToGhostBox(fbox);
         return box.clone().Translate(-ghostBox.ix0, -ghostBox.iy0);
     }
 };

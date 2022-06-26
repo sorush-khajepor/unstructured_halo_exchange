@@ -3,7 +3,7 @@ class Communication
 {
 private:
     Block2d<T> &block;
-    const std::vector<Neighbor> &neighbours;
+    const std::vector<Neighbor> neighbours;
     std::vector<MPI_Request> sendRequests;
     std::vector<MPI_Request> recvRequests;
 
@@ -43,11 +43,15 @@ public:
             MPI_Wait(&req, MPI_STATUS_IGNORE);
         sendRequests.clear();
     }
+    void Await(){
+        AwaitRecv();
+        AwaitSend();
+    }
 
     void Communicate()
     {
         CommunicateAsync();
-        AwaitRecv();
-        AwaitSend();
+        Await();
+        
     }
 };

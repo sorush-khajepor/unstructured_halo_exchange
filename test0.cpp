@@ -49,52 +49,24 @@ int main()
   std::vector<BoxRank> boxRanks{
       BoxRank{.box = b0, .rank = 0},
       BoxRank{.box = b1, .rank = 1},
-      BoxRank{.box = b2, .rank = 2} ,
-      BoxRank{.box = b3, .rank = 2}, 
+      BoxRank{.box = b2, .rank = 2} /*,
+      BoxRank{.box = b3, .rank = 2}, */
   };
 
   std::array<bool, 2> isPeriodic{true, true};
-
-  
   HaloManager haloManager{boxRanks, isPeriodic, overlap};
 
-  std::vector<Block2d<double>> blocks;
+  Block2d<double> block(boxRanks[rank].box, overlap);
 
-  for (auto &&boxRank : boxRanks)
-  {
-    if (boxRank.rank == rank)
-      blocks.emplace_back(boxRank.box, overlap);
-  }
+  fillBlock(block, rank);
 
-  for (size_t i = 0; i < blocks.size(); i++)
-  {
-    fillBlock(blocks[i], i + rank);
-  }
+  auto neighbors = haloManager.FindNeighbours(block.GetGlobalOwnBox());
 
-  std::vector<Communication<double>> comms;
-  for (auto &&block : blocks)
-  {
-    auto neighbors = haloManager.FindNeighbours(block.GetGlobalOwnBox());
-    
-    comms.emplace_back(block, neighbors);
-  }
-
-  for (auto &&comm : comms)
-  {
-    comm.CommunicateAsync();
-  }
-
-  for (auto &&comm : comms)
-  {
-    comm.Await();
-
-  }
-
-
+  Communication<double> comm(block, neighbors);
+  comm.Communicate();
 
   std::cout << "Rank:" << rank << "\n";
-  for (auto &&block : blocks)
-  
+
   block.Print();
   std::cout << "\n";
 
