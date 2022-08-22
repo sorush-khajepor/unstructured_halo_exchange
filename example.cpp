@@ -19,7 +19,8 @@ int main()
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    /*
+    // Uncomment to use this setup
+    /* 
       size_t overlap = 2;
       Box b0{0, 5, 0, 10};
       Box b1{6, 10, 0, 10};
@@ -28,6 +29,8 @@ int main()
 
       std::vector<Box> boxes{b0, b1, b2, b3};
     */
+
+    // Uncomment to use this setup
     /*
       size_t overlap = 2;
       Box b0{0, 20, 0, 7};
